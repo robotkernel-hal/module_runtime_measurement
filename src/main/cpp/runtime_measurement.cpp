@@ -44,176 +44,68 @@ using namespace robotkernel;
 using namespace module_runtime_measurement;
 using namespace string_util;
         
-//! yaml config construction
-/*!
- * \param name name of jm
- * \param node yaml node
- */
-runtime_measurement::runtime_measurement(const char* name, const YAML::Node& node) :
-    pd_provider(name), pd_consumer(name),
-    runnable(0, 0, name), module_base("module_runtime_measurement", name, node), 
-    service_provider::process_data_inspection::base(name, "runtime") 
+runtime_measurement::msr_path::msr_path(runtime_measurement& parent, const YAML::Node& node) :
+    parent(parent)
 {
+    dev_name              = get_as<std::string>(node, "trigger_dev_name");
+    msr_path_name         = get_as<std::string>(node, "name");
     buffer_size           = get_as<unsigned int>(node, "buffer_size", 1000);
     buffer_pos            = 0;
     buffer_act            = 0;
-    threaded              = get_as<bool>(node, "threaded", true);
-    new_maxever_threshold = get_as<double>(node, "new_maxever_threshold", 0.001);
 
     // resize buffers
-    buffer[0].resize(buffer_size);
-    buffer[1].resize(buffer_size);
-    log_diff.resize(buffer_size);
+    log_dur[0].resize(buffer_size);
+    log_dur[1].resize(buffer_size);
 }
+                
+runtime_measurement::msr_path::~msr_path() {};
 
-//! default destruction
-runtime_measurement::~runtime_measurement() {
-    // destroy trigger device
-    pdin_t_dev = nullptr;
-    maxever_t_dev = nullptr;
-}
+void runtime_measurement::msr_path::start() {
+    robotkernel::kernel& k = *robotkernel::kernel::get_instance();
 
-//! additional init function
-void runtime_measurement::init() {
-    // create named process data for inputs
-    string pdin_desc = 
-        "- double: max_ever\n"
-        "- double: last_max\n"
-        "- double: last_cycle\n"
-        "- uint64_t: last_ts\n"
-        "- double: max_ever_time\n";
-
-    pdin_t_dev = make_shared<trigger>(name, "inputs");
-    pdin = make_shared<robotkernel::triple_buffer>(sizeof(struct runtime_pdin), 
-            name, string("inputs"), pdin_desc, pdin_t_dev->id());
-
-    provider_hash = pdin->set_provider(shared_from_this());
-
-    // create named process data for outputs 
-    string pdout_desc = 
-        "- double: max_ever_clamp\n";
-
-    pdout_t_dev = make_shared<trigger>(name, "outputs");
-    pdout = make_shared<robotkernel::triple_buffer>(sizeof(struct runtime_pdout), 
-            name, string("outputs"), pdout_desc, pdout_t_dev->id());
-
-    consumer_hash = pdout->set_consumer(shared_from_this());
-
-    // set state to init
-    state = module_state_init;
-
-    maxever_time_string[0] = 0;
-    local_pdin.maxever      = 0.;
-    local_pdin.last_max     = 0.;
-    local_pdin.last_cycle   = 0.;
-    local_pdin.last_ts      = 0;
-    local_pdin.maxever_time = 0.;
-
-    kernel& k = *kernel::get_instance();    
+    // get/create triggers
+    input_t_dev = k.get_trigger(dev_name);
+    slave_t_dev = make_shared<runtime_measurement::slave_trigger>(input_t_dev, parent.name, 
+            format_string("%s", msr_path_name.c_str()));
+    k.add_device(slave_t_dev);
     
-    // create trigger device for pdin
-    maxever_t_dev = make_shared<trigger>(name, "new_maxever");
+    input_t_dev->add_trigger(shared_from_this());
 
-    // register services
-    k.add_service(name, "reset_max_ever",
-            service_definition_reset_max_ever,
-            std::bind(&runtime_measurement::service_reset_max_ever, this, _1, _2));
+    runnable::start();
 }
 
-void runtime_measurement::tick() {
-    // get actual timestamp
-    auto now = std::chrono::high_resolution_clock::now();
+void runtime_measurement::msr_path::stop() {
+    robotkernel::kernel& k = *robotkernel::kernel::get_instance();
 
-    local_pdin.last_ts = std::chrono::duration_cast<
-        std::chrono::nanoseconds>(now.time_since_epoch()).count();
+    runnable::stop();
 
-    pdin->write(provider_hash, 0, (uint8_t *)&local_pdin, sizeof(local_pdin));
-    pdin_t_dev->trigger_modules();
+    input_t_dev->remove_trigger(shared_from_this());
 
-    buffer[buffer_act][buffer_pos++] = now;
+    k.remove_device(slave_t_dev);
+    slave_t_dev = nullptr;
+    input_t_dev = nullptr;
+}
+
+void runtime_measurement::msr_path::tick() {
+    // get actual duration
+    auto begin = std::chrono::high_resolution_clock::now();
+    slave_t_dev->trigger_modules();
+    auto end = std::chrono::high_resolution_clock::now();
+
+    std::chrono::duration<uint64_t, std::nano> duration = end - begin;
+    uint64_t ns_duration = duration.count();
+    
+    log_dur[buffer_act][buffer_pos++] = ns_duration;
     if (buffer_pos >= buffer_size) {
         buffer_pos = 0;
         buffer_act = (buffer_act + 1) % 2; 
 
-        if (threaded)
-            sync_cond.notify_one();
-        else
-            print();
+        sync_cond.notify_one();
     }
-}
-
-//! print last buffer measurement values
-void runtime_measurement::print() {
-    log_tp_vec_t& act_buf = buffer[(buffer_act + 1) % 2];
-
-    double dev;
-    double cycle = 0, avgjit = 0, maxjit = 0;
-    
-    struct runtime_pdout *local_pdout = (struct runtime_pdout *)pdout->pop(consumer_hash);
-
-    // calculate differences and sum of differences
-    for (unsigned i = 0; i < buffer_size - 1; ++i) {
-        log_diff[i+1] = act_buf[i+1] - act_buf[i];
-        cycle += std::chrono::duration<double>(log_diff[i+1]).count();
-    }
-    cycle /= buffer_size - 1;
-
-    // calculating maximum deviation
-    bool have_new_maxever = false;
-    log_tp_t new_maxever_time;
-
-    for (unsigned i = 1; i < buffer_size; i++) {
-        dev     = fabs(std::chrono::duration<double>(log_diff[i]).count() - cycle); 
-        maxjit  = max(dev, maxjit);
-
-        if (maxjit > local_pdin.maxever) {
-            // new max ever!
-            local_pdin.maxever = maxjit;
-            new_maxever_time = act_buf[i - 1];
-            have_new_maxever = true;
-        
-            if (local_pdin.maxever > new_maxever_threshold)
-                maxever_t_dev->trigger_modules();
-        }
-        avgjit += (dev * dev);
-    }
-    avgjit = sqrt(avgjit/(buffer_size - 1));
-
-    local_pdin.last_cycle = cycle;
-    local_pdin.last_max = maxjit;
-
-    if (have_new_maxever) {
-        maxever_time = new_maxever_time;
-        auto now = std::chrono::high_resolution_clock::now();
-        double seconds_ago = std::chrono::duration<double>(now - maxever_time).count();
-        log(info, "new max ever is %.3fms ago\n", seconds_ago);
-
-        std::time_t t = std::chrono::high_resolution_clock::to_time_t(maxever_time);
-        int wr = snprintf(maxever_time_string, MAXEVER_TIME_STRING_SIZE, "%s", std::ctime(&t));
-        maxever_time_string[wr-1] = '\0';
-    }
-
-    if (local_pdout->max_ever_clamp != 0 && local_pdin.maxever > local_pdout->max_ever_clamp)
-        local_pdin.maxever = local_pdout->max_ever_clamp;
-
-    char running_maxever_time_string[MAXEVER_TIME_STRING_SIZE];
-    auto now = std::chrono::high_resolution_clock::now();
-    double seconds_ago = std::chrono::duration<double>(now - maxever_time).count();
-
-    if (maxever_time_string[0] == 0)
-        snprintf(running_maxever_time_string, MAXEVER_TIME_STRING_SIZE, 
-                "(%.1fs ago)", seconds_ago);
-    else
-        snprintf(running_maxever_time_string, MAXEVER_TIME_STRING_SIZE, 
-                "(%s, %.1fs ago)", maxever_time_string, seconds_ago);
-
-    log(info, "mean period: %4.0fus, runtime mean:"
-            " %4.0fus, max %4.0fus, max ever %4.0fus %s\n",
-            cycle*1E6, avgjit*1E6, maxjit*1E6, local_pdin.maxever*1E6, running_maxever_time_string);
 }
 
 //! handler function called if thread is running
-void runtime_measurement::run() {
+void runtime_measurement::msr_path::run() {
     std::unique_lock<std::mutex> lock(sync_mtx);
 
     while (running()) {
@@ -221,37 +113,55 @@ void runtime_measurement::run() {
                 == std::cv_status::timeout)
             continue;
 
-        print();
+        // print statistic
+        log_dur_vec_t& act_buf = log_dur[(buffer_act + 1) % 2];
+
+        uint64_t dev;
+        uint64_t avg_dur = 0, avgjit = 0, maxjit = 0;
+
+        // calculate differences and sum of differences
+        for (unsigned i = 0; i < buffer_size; ++i) {
+            avg_dur += act_buf[i];
+            maxjit  = max(act_buf[i], maxjit);
+        }
+        avg_dur /= buffer_size;
+
+        // calculating maximum deviation
+        for (unsigned i = 0; i < buffer_size; i++) {
+            dev     = abs(act_buf[i] - avg_dur); 
+
+            avgjit += (dev * dev);
+        }
+
+        avgjit = sqrt(avgjit/(buffer_size - 1));
+        
+        parent.log(info, "%s: mean duration: %4.0lfus, jitter mean:"
+                " %4.0lfus, max %4.0lfus\n", msr_path_name.c_str(),
+                (double)avg_dur / 1E3, (double)avgjit / 1E3, (double)maxjit / 1E3);
     }
 }
 
-//! reset max ever
+//! yaml config construction
 /*!
- * \param request service request data
- * \param response service response data
- * \return success
+ * \param name name of jm
+ * \param node yaml node
  */
-int runtime_measurement::service_reset_max_ever(
-        const robotkernel::service_arglist_t& request,
-        robotkernel::service_arglist_t& response) {
-#define RESET_MAX_EVER_RESP_MAXEVER 0
-    response.resize(1);
-    response[RESET_MAX_EVER_RESP_MAXEVER] = local_pdin.maxever;
-
-    local_pdin.maxever = 0;
-    local_pdin.maxever_time = 0;
-    maxever_time_string[0] = 0;
-
-    return 0;
+runtime_measurement::runtime_measurement(const char* name, const YAML::Node& node) :
+    module_base("module_runtime_measurement", name, node) 
+{
+    for (const auto& tr_node : node["triggers"]) {
+        auto tmp_path = make_shared<msr_path>(*this, tr_node);
+        msr_path_map[tmp_path->msr_path_name] = tmp_path;
+    }
 }
 
-const std::string runtime_measurement::service_definition_reset_max_ever = 
-"response:\n"
-"- double: maxever\n";
+//! default destruction
+runtime_measurement::~runtime_measurement() {
+    // destroy trigger device
+    msr_path_map.clear();
+}
 
 int runtime_measurement::set_state(module_state_t state) {
-    kernel& k = *kernel::get_instance();
-
     // get transition
     uint32_t transition = GEN_STATE(this->state, state);
     
@@ -263,8 +173,6 @@ int runtime_measurement::set_state(module_state_t state) {
         case op_2_init:
         case op_2_boot:
             // ====> stop sending commands
-            k.remove_device(pdout);
-            k.remove_device(pdout_t_dev); 
 
             if (state == module_state_safeop)
                 break;
@@ -272,12 +180,8 @@ int runtime_measurement::set_state(module_state_t state) {
         case safeop_2_init:
         case safeop_2_boot:
             // ====> stop receiving measurements
-            stop();
-
-            k.remove_device(maxever_t_dev);      // trigger device new maxever
-            k.remove_device(pdin);               // pd inputs
-            k.remove_device(pdin_t_dev);         // trigger device pd inputs
-            k.remove_device(shared_from_this()); // process data inspection
+            for (auto& kv : msr_path_map)
+                kv.second->stop();
 
             if (state == module_state_preop)
                 break;
@@ -306,21 +210,13 @@ int runtime_measurement::set_state(module_state_t state) {
         case preop_2_op:
         case preop_2_safeop:
             // ====> start receiving measurements
-            if (threaded)
-                start();
-            
-            // add process data inspection and process data
-            k.add_device(shared_from_this());   // process data inspection
-            k.add_device(pdin_t_dev);           // trigger device pd inputs
-            k.add_device(pdin);                 // pd inputs
-            k.add_device(maxever_t_dev);        // trigger device new maxever
+            for (auto& kv : msr_path_map)
+                kv.second->start();
 
             if (state == module_state_safeop)
                 break;
         case safeop_2_op:
             // ====> start sending commands
-            k.add_device(pdout_t_dev); 
-            k.add_device(pdout);
             break;
         case op_2_op:
         case safeop_2_safeop:
@@ -335,25 +231,3 @@ int runtime_measurement::set_state(module_state_t state) {
     return (this->state = state);
 }
         
-//! return input process data (measurements)
-/*!
- * \param pd return input process data
- */
-void runtime_measurement::get_pdin(
-        service_provider::process_data_inspection::pd_t& pd) {
-
-    pd.resize(pdin->length);
-    pdin->read(consumer_hash, 0, &pd[0], pdin->length, false);
-}
-
-//! return output process data (commands)
-/*!
- * \param pd return output process data
- */
-void runtime_measurement::get_pdout(
-        service_provider::process_data_inspection::pd_t& pd) {
-
-    pd.resize(pdout->length);
-    pdout->read(consumer_hash, 0, &pd[0], pdout->length, false);
-}
-

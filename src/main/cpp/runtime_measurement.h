@@ -20,8 +20,8 @@
  * along with robotkernel.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#ifndef __MODULE_runtime_MEASSUREMENT_H__
-#define __MODULE_runtime_MEASSUREMENT_H__
+#ifndef __MODULE_RUNTIME_MEASSUREMENT_H__
+#define __MODULE_RUNTIME_MEASSUREMENT_H__
 
 #include "robotkernel/runnable.h"
 #include "robotkernel/module_base.h"
@@ -43,70 +43,72 @@ namespace module_runtime_measurement {
 
 class runtime_measurement :
     public std::enable_shared_from_this<runtime_measurement>,
-    public robotkernel::pd_provider,
-    public robotkernel::pd_consumer,
-    public robotkernel::runnable,
-    public robotkernel::module_base,
-    public service_provider::process_data_inspection::base {
+    public robotkernel::module_base
+{
+    
+    public:
+        class slave_trigger : public robotkernel::trigger {
+            public:
+                robotkernel::sp_trigger_t master_trigger;
 
+                slave_trigger(robotkernel::sp_trigger_t master_trigger, 
+                        const std::string& owner, const std::string& name) :
+                    robotkernel::trigger(owner, name, master_trigger->get_rate()),
+                    master_trigger(master_trigger) {}
+
+                //! set rate of trigger 
+                /*!
+                 * set the rate of the current trigger
+                 * overload in derived trigger class
+                 *
+                 * \param new_rate new trigger rate to set
+                 */
+                void set_rate(double new_rate) {
+                    master_trigger->set_rate(new_rate);
+                }
+        };
+
+        class msr_path : 
+            public robotkernel::trigger_base,
+            public robotkernel::runnable,
+            public std::enable_shared_from_this<msr_path>
+        {
+            public:
+                runtime_measurement& parent;
+
+                std::string dev_name;
+                std::string msr_path_name;
+                robotkernel::sp_trigger_t input_t_dev, slave_t_dev;
+
+                msr_path(runtime_measurement& parent, const YAML::Node& node);
+                ~msr_path();
+
+                void start();
+                void stop();
+
+                void tick();
+        
+                //! handler function called if thread is running
+                void run();
+        
+                //! print thread sync
+                std::mutex              sync_mtx;
+                std::condition_variable sync_cond;
+
+        
+                size_t buffer_size;       //! size of runtime measurement buffer
+                //! position in buffer
+                unsigned int buffer_act;
+                unsigned int buffer_pos;
+
+                typedef std::vector<uint64_t> log_dur_vec_t;
+                log_dur_vec_t log_dur[2];
+        };
+            
     private: 
-        //! position in buffer
-        unsigned int buffer_act;
-        unsigned int buffer_pos;
-
-        //! memory buffer for runtime measurement
-        typedef std::chrono::high_resolution_clock::time_point log_tp_t;
-        typedef std::vector<log_tp_t> log_tp_vec_t;
-        log_tp_vec_t buffer[2];
-        
-        typedef std::chrono::high_resolution_clock::duration log_dur_t;
-        typedef std::vector<log_dur_t> log_dur_vec_t;
-        log_dur_vec_t log_diff;
-        
-        log_tp_t maxever_time;
-
-        //! print thread sync
-        std::mutex              sync_mtx;
-        std::condition_variable sync_cond;
-
-        //! print last buffer measurement values
-        void print();
-
-        //! handler function called if thread is running
-        void run();
+        std::map<std::string, std::shared_ptr<msr_path> > msr_path_map;
 
     public:
-        size_t buffer_size;       //! size of runtime measurement buffer
-        bool threaded;
-
-#define MAXEVER_TIME_STRING_SIZE    128
-        char maxever_time_string[MAXEVER_TIME_STRING_SIZE];
-
-        double new_maxever_threshold; //!< threshold for trigger on new maxever
-
-        struct runtime_pdin {
-            double maxever;         //! max ever seen runtime
-            double last_max;
-            double last_cycle;
-            uint64_t last_ts;
-            double maxever_time; // unix timestamp of last maxever increment!
-        };
-
-        struct runtime_pdin local_pdin;
-
-        struct runtime_pdout {
-            double max_ever_clamp;
-        };
-    
-        // named process data
-        robotkernel::sp_process_data_t pdin;
-        size_t provider_hash;
-        robotkernel::sp_trigger_t pdin_t_dev;
-        robotkernel::sp_process_data_t pdout;
-        size_t consumer_hash;
-        robotkernel::sp_trigger_t pdout_t_dev;
-        robotkernel::sp_trigger_t maxever_t_dev;
-
         //! yaml config construction
         /*!
          * \param name of jm 
@@ -118,7 +120,7 @@ class runtime_measurement :
         ~runtime_measurement();
 
         //! additional init function
-        void init();
+        void init() {}
 
         //! set module state
         /*
@@ -132,29 +134,7 @@ class runtime_measurement :
          *
          * if log buffer is full, output thread is triggered
          */
-        void tick();
-
-        //! reset max ever
-        /*!
-         * \param request service request data
-         * \param response service response data
-         * \return success
-         */
-        int service_reset_max_ever(const robotkernel::service_arglist_t& request,
-                robotkernel::service_arglist_t& response);
-        static const std::string service_definition_reset_max_ever;
-
-        //! return input process data (measurements)
-        /*!
-         * \param pd return input process data
-         */
-        void get_pdin(service_provider::process_data_inspection::pd_t& pd);
-
-        //! return output process data (commands)
-        /*!
-         * \param pd return output process data
-         */
-        void get_pdout(service_provider::process_data_inspection::pd_t& pd);
+        void tick() {}
 };
 
 #ifdef EMACS
@@ -162,5 +142,5 @@ class runtime_measurement :
 #endif
 };
 
-#endif // __MODULE_runtime_MEASSUREMENT_H__
+#endif // __MODULE_RUNTIME_MEASSUREMENT_H__
 
