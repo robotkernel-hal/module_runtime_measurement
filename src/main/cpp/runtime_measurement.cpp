@@ -127,8 +127,8 @@ void runtime_measurement::msr_path::run() {
         avg_dur /= buffer_size;
 
         // calculating maximum deviation
-        for (unsigned i = 0; i < buffer_size; i++) {
-            dev     = abs(act_buf[i] - avg_dur); 
+        for (unsigned i = 0; i < buffer_size; i++)
+            dev     = abs((int64_t)act_buf[i] - (int64_t)avg_dur); 
 
             avgjit += (dev * dev);
         }
