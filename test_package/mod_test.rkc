@@ -1,0 +1,10 @@
+modules:
+- name: jm 
+  so_file: libmodule_runtime_measurement.so
+  config: 
+    triggers:
+    - name: test
+      trigger_dev_name: timer.inputs.trigger
+      buffer_size: 1000
+  power_up: op
+

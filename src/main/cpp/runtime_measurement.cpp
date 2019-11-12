@@ -45,7 +45,7 @@ using namespace module_runtime_measurement;
 using namespace string_util;
         
 runtime_measurement::msr_path::msr_path(runtime_measurement& parent, const YAML::Node& node) :
-    parent(parent)
+    runnable(node), parent(parent)
 {
     dev_name              = get_as<std::string>(node, "trigger_dev_name");
     msr_path_name         = get_as<std::string>(node, "name");
@@ -128,7 +128,7 @@ void runtime_measurement::msr_path::run() {
 
         // calculating maximum deviation
         for (unsigned i = 0; i < buffer_size; i++) {
-            dev     = abs(act_buf[i] - avg_dur); 
+            dev     = abs((int64_t)act_buf[i] - (int64_t)avg_dur); 
 
             avgjit += (dev * dev);
         }
