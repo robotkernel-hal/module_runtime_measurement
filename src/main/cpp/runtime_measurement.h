@@ -71,6 +71,7 @@ class runtime_measurement :
         class msr_path : 
             public robotkernel::trigger_base,
             public robotkernel::runnable,
+            public robotkernel::pd_provider,
             public std::enable_shared_from_this<msr_path>
         {
             public:
@@ -90,7 +91,17 @@ class runtime_measurement :
         
                 //! handler function called if thread is running
                 void run();
-        
+
+                // input process data
+                struct runtime_pdin {
+                    uint64_t last_dur;
+                };
+
+                // named process data
+                robotkernel::sp_process_data_t runtime_pdin;
+                size_t runtime_provider_hash;
+                robotkernel::sp_trigger_t runtime_pdin_t_dev;                
+
                 //! print thread sync
                 std::mutex              sync_mtx;
                 std::condition_variable sync_cond;

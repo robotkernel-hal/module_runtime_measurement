@@ -45,7 +45,8 @@ using namespace module_runtime_measurement;
 using namespace string_util;
         
 runtime_measurement::msr_path::msr_path(runtime_measurement& parent, const YAML::Node& node) :
-    runnable(node), parent(parent)
+    runnable(node), pd_provider(format_string("%s.%s", parent.name.c_str(), get_as<std::string>(node, "name").c_str())),
+    parent(parent)
 {
     dev_name              = get_as<std::string>(node, "trigger_dev_name");
     msr_path_name         = get_as<std::string>(node, "name");
@@ -62,6 +63,18 @@ runtime_measurement::msr_path::~msr_path() {};
 
 void runtime_measurement::msr_path::start() {
     robotkernel::kernel& k = *robotkernel::kernel::get_instance();
+
+    string pdin_desc = 
+        "- uint64_t: last_dur\n";
+
+    runtime_pdin_t_dev = make_shared<trigger>(parent.name, format_string("%s.inputs", msr_path_name.c_str()));
+    runtime_pdin = make_shared<robotkernel::triple_buffer>(sizeof(struct runtime_pdin), 
+            parent.name, format_string("%s.inputs", msr_path_name.c_str()), pdin_desc, runtime_pdin_t_dev->id());
+
+    runtime_provider_hash = runtime_pdin->set_provider(shared_from_this());
+
+    k.add_device(runtime_pdin_t_dev);
+    k.add_device(runtime_pdin);
 
     // get/create triggers
     input_t_dev = k.get_trigger(dev_name);
@@ -84,6 +97,14 @@ void runtime_measurement::msr_path::stop() {
     k.remove_device(slave_t_dev);
     slave_t_dev = nullptr;
     input_t_dev = nullptr;
+
+    k.remove_device(runtime_pdin_t_dev);
+    k.remove_device(runtime_pdin);
+
+    runtime_pdin->reset_provider(runtime_provider_hash);
+    runtime_provider_hash = 0;
+    runtime_pdin = nullptr;
+    runtime_pdin_t_dev = nullptr;
 }
 
 void runtime_measurement::msr_path::tick() {
@@ -95,7 +116,11 @@ void runtime_measurement::msr_path::tick() {
     std::chrono::duration<uint64_t, std::nano> duration = end - begin;
     uint64_t ns_duration = duration.count();
     
+    runtime_pdin->write(runtime_provider_hash, 0, (uint8_t *)&ns_duration, sizeof(uint64_t));
+    runtime_pdin_t_dev->trigger_modules();
+
     log_dur[buffer_act][buffer_pos++] = ns_duration;
+
     if (buffer_pos >= buffer_size) {
         buffer_pos = 0;
         buffer_act = (buffer_act + 1) % 2; 
@@ -117,27 +142,28 @@ void runtime_measurement::msr_path::run() {
         log_dur_vec_t& act_buf = log_dur[(buffer_act + 1) % 2];
 
         uint64_t dev;
-        uint64_t avg_dur = 0, avgjit = 0, maxjit = 0;
+        uint64_t avg_dur = 0, avgjit = 0, maxjit = 0, mindur = act_buf[0], maxdur = 0;
 
         // calculate differences and sum of differences
         for (unsigned i = 0; i < buffer_size; ++i) {
             avg_dur += act_buf[i];
-            maxjit  = max(act_buf[i], maxjit);
+            mindur  = min(act_buf[i], mindur);
+            maxdur  = max(act_buf[i], maxdur);
         }
         avg_dur /= buffer_size;
 
         // calculating maximum deviation
         for (unsigned i = 0; i < buffer_size; i++) {
             dev     = abs((int64_t)act_buf[i] - (int64_t)avg_dur); 
-
+            maxjit  = max(dev, maxjit);
             avgjit += (dev * dev);
         }
 
         avgjit = sqrt(avgjit/(buffer_size - 1));
         
-        parent.log(info, "%s: mean duration: %4.0lfus, jitter mean:"
+        parent.log(info, "%s: mean duration: %4.0lfus (min %4.0lf, max %4.0lf), jitter mean:"
                 " %4.0lfus, max %4.0lfus\n", msr_path_name.c_str(),
-                (double)avg_dur / 1E3, (double)avgjit / 1E3, (double)maxjit / 1E3);
+                (double)avg_dur / 1E3, (double)mindur/1E3, (double)maxdur/1E3, (double)avgjit / 1E3, (double)maxjit / 1E3);
     }
 }
 
