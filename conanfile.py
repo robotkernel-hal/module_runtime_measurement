@@ -1,12 +1,10 @@
-from conans import tools, python_requires
+from conan import ConanFile
 
-base = python_requires("conan_template/[~=5]@robotkernel/stable")
+class MainProject(ConanFile):
+    python_requires = "conan_template/[^5.0.6]@robotkernel/stable"
+    python_requires_extend = "conan_template.RobotkernelConanFile"
 
-class MainProject(base.RobotkernelConanFile):
     name = "module_runtime_measurement"
     description = "robotkernel-5 runtime measurement module."
-    exports_sources = ["*", "!.gitignore"] + ["!%s" % x for x in tools.Git().excluded_files()]
-    requires = (
-            "robotkernel/[~=5]@robotkernel/stable",
-            "service_provider_process_data_inspection/[~=5]@robotkernel/stable" )
-
+    exports_sources = ["*", "!.gitignore"]
+    requires = ["robotkernel/[~=5]@robotkernel/stable", "service_provider_process_data_inspection/[~=5]@robotkernel/stable", ]
