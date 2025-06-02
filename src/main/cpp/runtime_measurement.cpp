@@ -45,8 +45,7 @@ using namespace module_runtime_measurement;
 using namespace string_util;
         
 runtime_measurement::msr_path::msr_path(runtime_measurement& parent, const YAML::Node& node) :
-    runnable(node), pd_provider(format_string("%s.%s", parent.name.c_str(), get_as<std::string>(node, "name").c_str())),
-    parent(parent)
+    runnable(node), parent(parent)
 {
     dev_name              = get_as<std::string>(node, "trigger_dev_name");
     msr_path_name         = get_as<std::string>(node, "name");
@@ -67,13 +66,10 @@ void runtime_measurement::msr_path::start() {
     string pdin_desc = 
         "- uint64_t: last_dur\n";
 
-    runtime_pdin_t_dev = make_shared<trigger>(parent.name, format_string("%s.inputs", msr_path_name.c_str()));
     runtime_pdin = make_shared<robotkernel::triple_buffer>(sizeof(struct runtime_pdin), 
-            parent.name, format_string("%s.inputs", msr_path_name.c_str()), pdin_desc, runtime_pdin_t_dev->id());
-
-    runtime_provider_hash = runtime_pdin->set_provider(shared_from_this());
-
-    k.add_device(runtime_pdin_t_dev);
+            parent.name, format_string("%s.inputs", msr_path_name.c_str()), pdin_desc);
+    runtime_prov = make_shared<pd_provider>(format_string("%s.%s", parent.name.c_str(), msr_path_name.c_str()));
+    runtime_pdin->set_provider(runtime_prov);
     k.add_device(runtime_pdin);
 
     // get/create triggers
@@ -98,13 +94,10 @@ void runtime_measurement::msr_path::stop() {
     slave_t_dev = nullptr;
     input_t_dev = nullptr;
 
-    k.remove_device(runtime_pdin_t_dev);
     k.remove_device(runtime_pdin);
-
-    runtime_pdin->reset_provider(runtime_provider_hash);
-    runtime_provider_hash = 0;
+    runtime_pdin->reset_provider(runtime_prov);
+    runtime_prov = nullptr;
     runtime_pdin = nullptr;
-    runtime_pdin_t_dev = nullptr;
 }
 
 void runtime_measurement::msr_path::tick() {
@@ -116,8 +109,8 @@ void runtime_measurement::msr_path::tick() {
     std::chrono::duration<uint64_t, std::nano> duration = end - begin;
     uint64_t ns_duration = duration.count();
     
-    runtime_pdin->write(runtime_provider_hash, 0, (uint8_t *)&ns_duration, sizeof(uint64_t));
-    runtime_pdin_t_dev->trigger_modules();
+    runtime_pdin->write(runtime_prov, 0, (uint8_t *)&ns_duration, sizeof(uint64_t));
+    runtime_pdin->trigger(); //_t_dev->trigger_modules();
 
     log_dur[buffer_act][buffer_pos++] = ns_duration;
 
