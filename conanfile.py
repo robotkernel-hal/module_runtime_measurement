@@ -5,6 +5,6 @@ class MainProject(ConanFile):
     python_requires_extend = "conan_template.RobotkernelConanFile"
 
     name = "module_runtime_measurement"
-    description = "robotkernel-5 runtime measurement module."
+    description = "robotkernel runtime measurement module."
     exports_sources = ["*", "!.gitignore"]
-    requires = ["robotkernel/[~=5]@robotkernel/stable", "service_provider_process_data_inspection/[~=5]@robotkernel/stable", ]
+    requires = ["robotkernel/[~6]@robotkernel/snapshot", "service_provider_process_data_inspection/[~6]@robotkernel/snapshot", ]
