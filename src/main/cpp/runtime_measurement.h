@@ -99,7 +99,7 @@ class runtime_measurement :
                 // named process data
                 robotkernel::sp_process_data_t runtime_pdin;
                 robotkernel::sp_pd_provider_t runtime_prov;
-                robotkernel::sp_trigger_t runtime_pdin_t_dev;                
+                service_provider::process_data_inspection::sp_pd_inspection_t runtime_pdin_inspect;
 
                 //! print thread sync
                 std::mutex              sync_mtx;

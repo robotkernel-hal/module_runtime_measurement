@@ -72,6 +72,10 @@ void runtime_measurement::msr_path::start() {
     runtime_pdin->set_provider(runtime_prov);
     k.add_device(runtime_pdin);
 
+    runtime_pdin_inspect = make_shared<service_provider::process_data_inspection::pd_inspection>(parent.name, 
+            format_string("%s.inputs", msr_path_name.c_str()), runtime_pdin);
+    k.add_device(runtime_pdin_inspect);
+
     // get/create triggers
     input_t_dev = k.get_trigger(dev_name);
     slave_t_dev = make_shared<runtime_measurement::slave_trigger>(input_t_dev, parent.name, 
@@ -93,6 +97,9 @@ void runtime_measurement::msr_path::stop() {
     k.remove_device(slave_t_dev);
     slave_t_dev = nullptr;
     input_t_dev = nullptr;
+
+    k.remove_device(runtime_pdin_inspect);
+    runtime_pdin_inspect = nullptr;
 
     k.remove_device(runtime_pdin);
     runtime_pdin->reset_provider(runtime_prov);
