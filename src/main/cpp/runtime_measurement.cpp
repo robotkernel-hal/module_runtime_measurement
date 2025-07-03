@@ -61,8 +61,6 @@ runtime_measurement::msr_path::msr_path(runtime_measurement& parent, const YAML:
 runtime_measurement::msr_path::~msr_path() {};
 
 void runtime_measurement::msr_path::start() {
-    robotkernel::kernel& k = *robotkernel::kernel::get_instance();
-
     string pdin_desc = 
         "- uint64_t: last_dur\n";
 
@@ -70,17 +68,17 @@ void runtime_measurement::msr_path::start() {
             parent.name, format_string("%s.inputs", msr_path_name.c_str()), pdin_desc);
     runtime_prov = make_shared<pd_provider>(format_string("%s.%s", parent.name.c_str(), msr_path_name.c_str()));
     runtime_pdin->set_provider(runtime_prov);
-    k.add_device(runtime_pdin);
+    robotkernel::add_device(runtime_pdin);
 
     runtime_pdin_inspect = make_shared<service_provider::process_data_inspection::pd_inspection>(parent.name, 
             format_string("%s.inputs", msr_path_name.c_str()), runtime_pdin);
-    k.add_device(runtime_pdin_inspect);
+    robotkernel::add_device(runtime_pdin_inspect);
 
     // get/create triggers
-    input_t_dev = k.get_trigger(dev_name);
+    input_t_dev = robotkernel::get_device<trigger>(dev_name);
     slave_t_dev = make_shared<runtime_measurement::slave_trigger>(input_t_dev, parent.name, 
             format_string("%s", msr_path_name.c_str()));
-    k.add_device(slave_t_dev);
+    robotkernel::add_device(slave_t_dev);
     
     input_t_dev->add_trigger(shared_from_this());
 
@@ -88,20 +86,18 @@ void runtime_measurement::msr_path::start() {
 }
 
 void runtime_measurement::msr_path::stop() {
-    robotkernel::kernel& k = *robotkernel::kernel::get_instance();
-
     runnable::stop();
 
     input_t_dev->remove_trigger(shared_from_this());
 
-    k.remove_device(slave_t_dev);
+    robotkernel::remove_device(slave_t_dev);
     slave_t_dev = nullptr;
     input_t_dev = nullptr;
 
-    k.remove_device(runtime_pdin_inspect);
+    robotkernel::remove_device(runtime_pdin_inspect);
     runtime_pdin_inspect = nullptr;
 
-    k.remove_device(runtime_pdin);
+    robotkernel::remove_device(runtime_pdin);
     runtime_pdin->reset_provider(runtime_prov);
     runtime_prov = nullptr;
     runtime_pdin = nullptr;
@@ -110,7 +106,7 @@ void runtime_measurement::msr_path::stop() {
 void runtime_measurement::msr_path::tick() {
     // get actual duration
     auto begin = std::chrono::high_resolution_clock::now();
-    slave_t_dev->trigger_modules();
+    slave_t_dev->do_trigger();
     auto end = std::chrono::high_resolution_clock::now();
 
     std::chrono::duration<uint64_t, std::nano> duration = end - begin;
