@@ -34,7 +34,6 @@
 #include <math.h>
 
 #include "yaml-cpp/yaml.h"
-#include <string_util/string_util.h>
 
 MODULE_DEF(module_runtime_measurement, module_runtime_measurement::runtime_measurement)
 
@@ -42,7 +41,6 @@ using namespace std;
 using namespace std::placeholders;
 using namespace robotkernel;
 using namespace module_runtime_measurement;
-using namespace string_util;
         
 runtime_measurement::msr_path::msr_path(runtime_measurement& parent, const YAML::Node& node) :
     runnable(node), parent(parent)
@@ -65,19 +63,19 @@ void runtime_measurement::msr_path::start() {
         "- uint64_t: last_dur\n";
 
     runtime_pdin = make_shared<robotkernel::triple_buffer>(sizeof(struct runtime_pdin), 
-            parent.name, format_string("%s.inputs", msr_path_name.c_str()), pdin_desc);
-    runtime_prov = make_shared<pd_provider>(format_string("%s.%s", parent.name.c_str(), msr_path_name.c_str()));
+            parent.name, string_printf("%s.inputs", msr_path_name.c_str()), pdin_desc);
+    runtime_prov = make_shared<pd_provider>(string_printf("%s.%s", parent.name.c_str(), msr_path_name.c_str()));
     runtime_pdin->set_provider(runtime_prov);
     robotkernel::add_device(runtime_pdin);
 
-    runtime_pdin_inspect = make_shared<service_provider::process_data_inspection::pd_inspection>(parent.name, 
-            format_string("%s.inputs", msr_path_name.c_str()), runtime_pdin);
+    runtime_pdin_inspect = make_shared<service_provider_process_data_inspection::pd_inspection>(parent.name, 
+            string_printf("%s.inputs", msr_path_name.c_str()), runtime_pdin);
     robotkernel::add_device(runtime_pdin_inspect);
 
     // get/create triggers
     input_t_dev = robotkernel::get_device<trigger>(dev_name);
     slave_t_dev = make_shared<runtime_measurement::slave_trigger>(input_t_dev, parent.name, 
-            format_string("%s", msr_path_name.c_str()));
+            string_printf("%s", msr_path_name.c_str()));
     robotkernel::add_device(slave_t_dev);
     
     input_t_dev->add_trigger(shared_from_this());

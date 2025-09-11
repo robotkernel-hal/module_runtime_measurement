@@ -26,7 +26,7 @@
 #include "robotkernel/runnable.h"
 #include "robotkernel/module_base.h"
 
-#include "service_provider/process_data_inspection/base.h"
+#include "service_provider_process_data_inspection/base.h"
 
 #include "yaml-cpp/yaml.h"
 
@@ -99,7 +99,7 @@ class runtime_measurement :
                 // named process data
                 robotkernel::sp_process_data_t runtime_pdin;
                 robotkernel::sp_pd_provider_t runtime_prov;
-                service_provider::process_data_inspection::sp_pd_inspection_t runtime_pdin_inspect;
+                service_provider_process_data_inspection::sp_pd_inspection_t runtime_pdin_inspect;
 
                 //! print thread sync
                 std::mutex              sync_mtx;
