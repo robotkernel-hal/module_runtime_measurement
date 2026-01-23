@@ -40,6 +40,7 @@ MODULE_DEF(module_runtime_measurement, module_runtime_measurement::runtime_measu
 using namespace std;
 using namespace std::placeholders;
 using namespace robotkernel;
+using namespace robotkernel::helpers;
 using namespace module_runtime_measurement;
         
 runtime_measurement::msr_path::msr_path(runtime_measurement& parent, const YAML::Node& node) :
@@ -78,7 +79,7 @@ void runtime_measurement::msr_path::start() {
             string_printf("%s", msr_path_name.c_str()));
     robotkernel::add_device(slave_t_dev);
     
-    input_t_dev->add_trigger(shared_from_this());
+    input_t_dev->add_trigger(shared_from_this_as<trigger_base>());
 
     runnable::start();
 }
@@ -86,7 +87,7 @@ void runtime_measurement::msr_path::start() {
 void runtime_measurement::msr_path::stop() {
     runnable::stop();
 
-    input_t_dev->remove_trigger(shared_from_this());
+    input_t_dev->remove_trigger(shared_from_this_as<trigger_base>());
 
     robotkernel::remove_device(slave_t_dev);
     slave_t_dev = nullptr;

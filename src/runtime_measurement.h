@@ -42,7 +42,7 @@ namespace module_runtime_measurement {
 #endif
 
 class runtime_measurement :
-    public std::enable_shared_from_this<runtime_measurement>,
+    public virtual robotkernel::shared_base,
     public robotkernel::module_base
 {
     
@@ -70,8 +70,7 @@ class runtime_measurement :
 
         class msr_path : 
             public robotkernel::trigger_base,
-            public robotkernel::runnable,
-            public std::enable_shared_from_this<msr_path>
+            public robotkernel::runnable
         {
             public:
                 runtime_measurement& parent;
