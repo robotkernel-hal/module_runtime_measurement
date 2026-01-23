@@ -1,10 +1,10 @@
 Source: module-runtime-measurement
-Section: unknown
+Section: embedded
 Priority: optional
 Maintainer: Robert Burger <robert.burger@dlr.de>
 Build-Depends: debhelper-compat (= 13), robotkernel-dev (>=6), service-provider-process-data-inspection-dev (>=6)
 Standards-Version: 4.5.1
-Homepage: <insert the upstream URL, if relevant>
+Homepage: https://www.burger-system.de/robotkernel/module_runtime_measurement
 Vcs-Browser: https://github.com/robotkernel-hal/module_runtime_measurement.git
 Vcs-Git: https://github.com/robotkernel-hal/module_runtime_measurement.git
 Rules-Requires-Root: no
@@ -13,5 +13,8 @@ Package: module-runtime-measurement
 Architecture: any
 Multi-Arch: same
 Depends: robotkernel ${misc:Depends}
-Description: Robotkernel module to do runtime measurement of trigger pulses. 
- Prints runtime statistic over given sample size and all time.
+Description: Robotkernel module to generate deterministic triggers for other modules.
+  It supports three different modes. 
+  nanosleep: In this mode the **module_runtime_measurement** main thread just does a nanosleep until the period time has been elapsed. If the nanosleep call was interrupted by some signal it will sleep until the calculated period end time has been reached. This mode is easy and efficient as well. The **module_runtime_measurement*** thread should run at a very high priority to ensure, that it will be waken up when it's necessary. 
+  runtime_measurement: This mode creates a timer with timer_create. It configures the timer and connects it to the given signal number from the configuration string. 
+  busywait: In busywait the timer threads does active wait on the cpu and consumes all cpu time. This can cause higher power consumption and higher temperature (But on a PREEMPT-RT system that should not matter). 
