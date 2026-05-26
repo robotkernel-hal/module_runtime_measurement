@@ -1,4 +1,4 @@
-module-runtime-measurement (6.0.0) unstable; urgency=low
+module-runtime-measurement (6.0.0) stable; urgency=low
 
   * chore: conan2 port
 
