@@ -7,6 +7,7 @@ class MainProject(ConanFile):
     name = "module_runtime_measurement"
     description = "robotkernel runtime measurement module."
     exports_sources = ["*", "!.gitignore"]
+    tool_requires = ["robotkernel_generator/[~6]@robotkernel/stable"]
     requires = ["robotkernel/[~6]@robotkernel/stable", "service_provider_process_data_inspection/[~6]@robotkernel/stable", ]
     
     def source(self):

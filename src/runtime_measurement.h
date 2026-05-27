@@ -30,6 +30,7 @@
 
 #include "yaml-cpp/yaml.h"
 
+
 #include <mutex>
 #include <chrono>
 #include <condition_variable>
@@ -37,9 +38,6 @@
 #include "config.h"
 
 namespace module_runtime_measurement {
-#ifdef EMACS
-}
-#endif
 
 class runtime_measurement :
     public virtual robotkernel::shared_base,
@@ -89,11 +87,6 @@ class runtime_measurement :
         
                 //! handler function called if thread is running
                 void run();
-
-                // input process data
-                struct runtime_pdin {
-                    uint64_t last_dur;
-                };
 
                 // named process data
                 robotkernel::sp_process_data_t runtime_pdin;
@@ -146,9 +139,6 @@ class runtime_measurement :
         void tick() {}
 };
 
-#ifdef EMACS
-{
-#endif
 };
 
 #endif // __MODULE_RUNTIME_MEASSUREMENT_H__

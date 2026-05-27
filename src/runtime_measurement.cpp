@@ -34,6 +34,7 @@
 #include <math.h>
 
 #include "yaml-cpp/yaml.h"
+#include "gen_definitions.h"
 
 MODULE_DEF(module_runtime_measurement, module_runtime_measurement::runtime_measurement)
 
@@ -60,11 +61,9 @@ runtime_measurement::msr_path::msr_path(runtime_measurement& parent, const YAML:
 runtime_measurement::msr_path::~msr_path() {};
 
 void runtime_measurement::msr_path::start() {
-    string pdin_desc = 
-        "- uint64_t: last_dur\n";
-
-    runtime_pdin = make_shared<robotkernel::triple_buffer>(sizeof(struct runtime_pdin), 
-            parent.name, string_printf("%s.inputs", msr_path_name.c_str()), pdin_desc);
+    pd_inputs::register_definition();
+    runtime_pdin = make_shared<robotkernel::triple_buffer>(pd_inputs::size,
+            parent.name, string_printf("%s.inputs", msr_path_name.c_str()), pd_inputs::definition_name);
     runtime_prov = make_shared<pd_provider>(string_printf("%s.%s", parent.name.c_str(), msr_path_name.c_str()));
     runtime_pdin->set_provider(runtime_prov);
     robotkernel::add_device(runtime_pdin);
@@ -78,7 +77,7 @@ void runtime_measurement::msr_path::start() {
     slave_t_dev = make_shared<runtime_measurement::slave_trigger>(input_t_dev, parent.name, 
             string_printf("%s", msr_path_name.c_str()));
     robotkernel::add_device(slave_t_dev);
-    
+
     input_t_dev->add_trigger(shared_from_this_as<trigger_base>());
 
     runnable::start();
@@ -100,6 +99,8 @@ void runtime_measurement::msr_path::stop() {
     runtime_pdin->reset_provider(runtime_prov);
     runtime_prov = nullptr;
     runtime_pdin = nullptr;
+
+    pd_inputs::remove_definition();
 }
 
 void runtime_measurement::msr_path::tick() {
@@ -110,9 +111,8 @@ void runtime_measurement::msr_path::tick() {
 
     std::chrono::duration<uint64_t, std::nano> duration = end - begin;
     uint64_t ns_duration = duration.count();
-    
+
     runtime_pdin->write(runtime_prov, 0, (uint8_t *)&ns_duration, sizeof(uint64_t));
-    runtime_pdin->trigger(); //_t_dev->trigger_modules();
 
     log_dur[buffer_act][buffer_pos++] = ns_duration;
 
@@ -155,7 +155,7 @@ void runtime_measurement::msr_path::run() {
         }
 
         avgjit = sqrt(avgjit/(buffer_size - 1));
-        
+
         parent.log(info, "%s: mean duration: %4.0lfus (min %4.0lf, max %4.0lf), jitter mean:"
                 " %4.0lfus, max %4.0lfus\n", msr_path_name.c_str(),
                 (double)avg_dur / 1E3, (double)mindur/1E3, (double)maxdur/1E3, (double)avgjit / 1E3, (double)maxjit / 1E3);
