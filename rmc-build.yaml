@@ -5,6 +5,7 @@ builds:
   - context: conan
     build_file: share/msg_definitions/conanfile.py
     configurations: *build_configs
+    test_package: None
   - context: conan
     build_file: conanfile.py
     configurations: *build_configs
